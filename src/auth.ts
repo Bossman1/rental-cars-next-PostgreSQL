@@ -1,21 +1,10 @@
-import { type DefaultSession, type NextAuthConfig } from "next-auth";
+import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import { db  } from "~/server/db";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { db } from "~/server/db";
 
-// Adds `id` and `role` to the session user type
-declare module "next-auth" {
-  interface Session extends DefaultSession {
-    user: {
-      id: string;
-      role: string;
-    } & DefaultSession["user"];
-  }
-}
-
-export const authConfig = {
-
+export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
 
   providers: [
@@ -31,21 +20,16 @@ export const authConfig = {
           password: z.string().min(6),
         }).safeParse(credentials);
 
-        console.log("1. Parsed:", parsed.success);
         if (!parsed.success) return null;
+
 
         const user = await db.user.findUnique({
           where: { email: parsed.data.email },
         });
 
-        console.log("2. User found:", !!user);
-        console.log("3. Has password:", !!user?.password);
-
-        if (!user || !user.password) return null;
+        if (!user?.password) return null;
 
         const valid = await bcrypt.compare(parsed.data.password, user.password);
-        console.log("4. Password valid:", valid);
-
         if (!valid) return null;
 
         return {
@@ -59,15 +43,13 @@ export const authConfig = {
   ],
 
   callbacks: {
-    // Add role to JWT token
     async jwt({ token, user }) {
       if (user) token.role = (user as any).role;
       return token;
     },
-    // Add role to session
     async session({ session, token }) {
       if (session.user) {
-        session.user.id   = token.sub!;
+        session.user.id = token.sub!;
         (session.user as any).role = token.role;
       }
       return session;
@@ -77,4 +59,4 @@ export const authConfig = {
   pages: {
     signIn: "/login",
   },
-} satisfies NextAuthConfig;
+});
